@@ -24,6 +24,8 @@ engine = create_async_engine(
     max_overflow=0 if is_serverless() else settings.database_max_overflow,
     pool_pre_ping=True,
     pool_recycle=300,  # Recycle connections after 5 minutes
+    # Disable prepared statements for pgbouncer compatibility
+    connect_args={"statement_cache_size": 0},
 )
 
 # Create session factory
