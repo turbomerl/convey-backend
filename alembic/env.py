@@ -1,5 +1,7 @@
 from logging.config import fileConfig
 import asyncio
+import os
+import sys
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
@@ -8,7 +10,6 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 # Import app modules
-import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -20,8 +21,28 @@ from app.config import settings
 # access to the values within the .ini file in use.
 config = context.config
 
-# Override sqlalchemy.url with value from settings
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Override sqlalchemy.url with environment-aware value from settings
+config.set_main_option("sqlalchemy.url", settings.get_database_url())
+
+# Safety check: Confirm production migrations
+if settings.is_production_db:
+    # In non-interactive environments (CI/CD), require explicit confirmation
+    if not os.getenv("ALEMBIC_PRODUCTION_CONFIRMED"):
+        if sys.stdin.isatty():  # Interactive terminal
+            db_host = settings.get_database_url().split('@')[1].split('/')[0] if '@' in settings.get_database_url() else 'unknown'
+            response = input(
+                f"\n⚠️  WARNING: Running migrations against PRODUCTION database!\n"
+                f"   Database: {db_host}\n"
+                "   Continue? (yes/no): "
+            )
+            if response.lower() != "yes":
+                print("Migration aborted.")
+                sys.exit(1)
+        else:
+            raise RuntimeError(
+                "Attempting to run production migrations without confirmation. "
+                "Set ALEMBIC_PRODUCTION_CONFIRMED=true to proceed."
+            )
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -75,12 +96,14 @@ async def run_async_migrations() -> None:
 
     """
 
+    # Only disable prepared statements for production (pgbouncer compatibility)
+    connect_args = {"statement_cache_size": 0} if settings.is_production_db else {}
+
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        # Disable prepared statements for pgbouncer compatibility
-        connect_args={"statement_cache_size": 0},
+        connect_args=connect_args,
     )
 
     async with connectable.connect() as connection:

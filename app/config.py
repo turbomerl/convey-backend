@@ -1,7 +1,7 @@
 """
 Application configuration using Pydantic Settings.
 """
-from typing import List, Union
+from typing import List, Union, Literal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -25,8 +25,23 @@ class Settings(BaseSettings):
     # Default Provider
     default_provider: str = "openai"
 
-    # Database Configuration
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/convey"
+    # Database Environment Selection
+    db_environment: Literal["local", "production"] = "local"
+
+    # Local Database Configuration (used when db_environment="local")
+    local_db_host: str = "localhost"
+    local_db_port: int = 5432
+    local_db_name: str = "convey"
+    local_db_user: str = "postgres"
+    local_db_password: str = "postgres"
+
+    # Production Database Configuration (used when db_environment="production")
+    production_database_url: str | None = None
+
+    # Legacy database_url (for backward compatibility, will be deprecated)
+    database_url: str | None = None
+
+    # Database Connection Pool Settings
     database_echo: bool = False
     database_pool_size: int = 5
     database_max_overflow: int = 10
@@ -35,6 +50,44 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440  # 24 hours
+
+    def get_database_url(self) -> str:
+        """
+        Get database URL based on environment.
+
+        Returns:
+            Constructed database URL for the selected environment
+
+        Raises:
+            ValueError: If production environment is selected without PRODUCTION_DATABASE_URL
+        """
+        if self.db_environment == "local":
+            return (
+                f"postgresql+asyncpg://{self.local_db_user}:{self.local_db_password}"
+                f"@{self.local_db_host}:{self.local_db_port}/{self.local_db_name}"
+            )
+        elif self.db_environment == "production":
+            if self.production_database_url:
+                return self.production_database_url
+            # Fallback to legacy database_url for backward compatibility
+            if self.database_url:
+                return self.database_url
+            raise ValueError(
+                "Production database URL not configured. "
+                "Set PRODUCTION_DATABASE_URL in environment."
+            )
+        else:
+            raise ValueError(f"Invalid db_environment: {self.db_environment}")
+
+    @property
+    def is_local_db(self) -> bool:
+        """Check if using local database."""
+        return self.db_environment == "local"
+
+    @property
+    def is_production_db(self) -> bool:
+        """Check if using production database."""
+        return self.db_environment == "production"
 
     @field_validator("cors_origins", mode="before")
     @classmethod

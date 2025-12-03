@@ -18,14 +18,14 @@ def is_serverless() -> bool:
 
 # Create async engine with serverless-optimized settings
 engine = create_async_engine(
-    settings.database_url,
+    settings.get_database_url(),
     echo=settings.database_echo,
     pool_size=1 if is_serverless() else settings.database_pool_size,
     max_overflow=0 if is_serverless() else settings.database_max_overflow,
     pool_pre_ping=True,
     pool_recycle=300,  # Recycle connections after 5 minutes
-    # Disable prepared statements for pgbouncer compatibility
-    connect_args={"statement_cache_size": 0},
+    # Disable prepared statements for pgbouncer compatibility (production only)
+    connect_args={"statement_cache_size": 0} if settings.is_production_db else {},
 )
 
 # Create session factory
